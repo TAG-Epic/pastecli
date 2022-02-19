@@ -1,46 +1,45 @@
+#![feature(format_args_capture)]
+
 use std::io::{self, BufRead};
-use reqwest;
 use serde_json::Value;
 use std::path::Path;
-use std::fs::File;
-use std::io::prelude::*;
+use std::fs::read_to_string;
+use ureq;
 
 const API_BASE: &str = "https://paste.nextcord.dev";
 const DEFAULT_LANGUAGE: &str = "python";
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let language_or_file = std::env::args().nth(1);
 
-    if let Some(potential_file) = language_or_file {
-        let file_path = Path::new(&potential_file);
-        if !file_path.is_file() {
-            let text = read_piped();
-            let url = upload_paste(text, potential_file).await;
-            println!("{}", url);
-            return;
-        } else {
-            let mut file = File::open(file_path).expect("Could not open file");
-            let mut contents = String::new();
-            file.read_to_string(&mut contents).expect("Could not read from file");
-
-            let file_extension = potential_file.split(".").nth(1).unwrap_or(DEFAULT_LANGUAGE);
-            let file_type = match file_extension {
-                "py" => "python",
-                "rs" => "rust",
-                "js" => "javascript",
-                _ => file_extension
-            };
-
-            let url = upload_paste(contents, file_type).await;
-            println!("{}", url);
+    let language_or_file = match language_or_file {
+        Some(language_or_file) => language_or_file,
+        None => {
+            let url = upload_paste(read_piped(), DEFAULT_LANGUAGE);
+            println!("{url}");
             return;
         }
-    } else {
-        let text = read_piped();
-        let url = upload_paste(text, DEFAULT_LANGUAGE).await;
-        println!("{}", url);
+    };
+
+    let file_path = Path::new(&language_or_file);
+
+    if !file_path.is_file() {
+        let url = upload_paste(read_piped(), &language_or_file);
+        println!("{url}");
+        return;
     }
+
+    let contents = read_to_string(file_path).expect("Failed to open file");
+
+    let file_extension = file_path.extension().and_then(|s| s.to_str()).unwrap_or(DEFAULT_LANGUAGE);
+    let file_type = match file_extension {
+        "py" => "python",
+        "rs" => "rust",
+        "js" => "javascript",
+        _ => file_extension
+    };
+    let url = upload_paste(contents, &file_type);
+    println!("{url}");
 }
 
 fn read_piped() -> String {
@@ -53,17 +52,11 @@ fn read_piped() -> String {
     text
 }
 
-async fn upload_paste(text: impl AsRef<str>, language: impl AsRef<str>) -> String {
-    let client = reqwest::Client::builder().build().unwrap();
-    let body = text.as_ref().as_bytes().to_vec();
-
-    // Send the request
-    let resp = client.post(API_BASE.to_owned() + "/api/new")
-        .body(body)
-        .send()
-        .await
-        .expect("Could not send request");
-    let resp_body = resp.text().await.expect("Could not get response body");
+fn upload_paste(text: impl AsRef<str>, language: impl AsRef<str>) -> String {
+    let resp = ureq::get(&(API_BASE.to_owned() + "/api/new"))
+        .send_string(text.as_ref())
+        .unwrap();
+    let resp_body = resp.into_string().expect("Could not get response body");
     let data: Value = serde_json::from_str(&resp_body).expect("Could not decode JSON body");
 
     format!("{}?id={}&language={}", API_BASE, data["key"].as_str().expect("Could not get paste key"), language.as_ref())
