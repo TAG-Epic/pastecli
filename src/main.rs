@@ -2,12 +2,19 @@
 
 use std::io::{self, BufRead};
 use serde_json::Value;
+use serde::Serialize;
 use std::path::Path;
 use std::fs::read_to_string;
 use ureq;
 
 const API_BASE: &str = "https://paste.nextcord.dev";
 const DEFAULT_LANGUAGE: &str = "python";
+
+#[derive(Serialize)]
+struct Upload {
+    content: String,
+    language: String,
+}
 
 fn main() {
     let language_or_file = std::env::args().nth(1);
@@ -53,11 +60,16 @@ fn read_piped() -> String {
 }
 
 fn upload_paste(text: impl AsRef<str>, language: impl AsRef<str>) -> String {
+    let upload = Upload {
+        content: text.as_ref().to_string(),
+        language: language.as_ref().to_string(),
+    };
+    let body = serde_json::to_string(&upload).unwrap();
     let resp = ureq::get(&(API_BASE.to_owned() + "/api/new"))
-        .send_string(text.as_ref())
+        .send_string(&body)
         .unwrap();
     let resp_body = resp.into_string().expect("Could not get response body");
     let data: Value = serde_json::from_str(&resp_body).expect("Could not decode JSON body");
 
-    format!("{}?id={}&language={}", API_BASE, data["key"].as_str().expect("Could not get paste key"), language.as_ref())
+    format!("{}?id={}", API_BASE, data["key"].as_str().expect("Could not get paste key"))
 }
