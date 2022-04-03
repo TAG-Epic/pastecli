@@ -1,5 +1,3 @@
-#![feature(format_args_capture)]
-
 use std::io::{self, BufRead};
 use serde_json::Value;
 use serde::Serialize;
